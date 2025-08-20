@@ -1,0 +1,351 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local player = Players.LocalPlayer
+
+-- Function to wait for object to exist
+local function waitForObject(parent, name, timeout)
+    if not parent then
+        warn("Parent is nil for " .. name)
+        return nil
+    end
+    local startTime = tick()
+    local object = parent:FindFirstChild(name)
+    while not object and tick() - startTime < (timeout or 10) do
+        object = parent:FindFirstChild(name)
+        task.wait(0.1)
+    end
+    if not object then
+        warn(name .. " not found in " .. parent.Name .. " after timeout!")
+    end
+    return object
+end
+
+-- Function to find the highest strength machine the player can use
+local function findHighestStrengthModelAndInteract(folder, player)
+    if not folder then
+        warn("machinesFolder is nil!")
+        return nil, nil
+    end
+    local highestStrength = -math.huge
+    local strongestModel = nil
+    local targetSeat = nil
+
+    local playerStrength = 0
+    local leaderstats = waitForObject(player, "leaderstats")
+    if leaderstats then
+        local strengthStat = waitForObject(leaderstats, "Strength")
+        if strengthStat and strengthStat:IsA("IntValue") then
+            playerStrength = strengthStat.Value
+        else
+            warn("Player's Strength IntValue not found in leaderstats!")
+            return nil, nil
+        end
+    else
+        return nil, nil
+    end
+
+    for _, child in ipairs(folder:GetChildren()) do
+        if child:IsA("Model") and not child.Name:lower():match("king") then
+            local strengthValue = child:FindFirstChild("strengthGain")
+            local interactSeat = child:FindFirstChild("interactSeat")
+            
+            if strengthValue and strengthValue:IsA("IntValue") and 
+               interactSeat and (interactSeat:IsA("Seat") or interactSeat:IsA("VehicleSeat")) then
+                local requiredStrength = 0
+                local requirementsFolder = child:FindFirstChild("requirements")
+                if requirementsFolder then
+                    local strengthIntValue = requirementsFolder:FindFirstChild("Strength")
+                    if strengthIntValue and strengthIntValue:IsA("IntValue") then
+                        requiredStrength = strengthIntValue.Value
+                    end
+                end
+                
+                if requiredStrength <= playerStrength and strengthValue.Value > highestStrength then
+                    highestStrength = strengthValue.Value
+                    strongestModel = child
+                    targetSeat = interactSeat
+                end
+            end
+        end
+    end
+
+    return strongestModel, targetSeat
+end
+
+-- Function to handle machine interaction
+local function autoTrain()
+    local folder = game.Workspace:FindFirstChild("machinesFolder")
+    if not folder then
+        warn("machinesFolder not found in Workspace!")
+        return false, nil, nil
+    end
+    if not player then
+        warn("Local player not found!")
+        return false, nil, nil
+    end
+
+    if not player.Character then
+        print("Waiting for character to load in autoTrain...")
+        player.CharacterAdded:Wait()
+    end
+
+    if not player.Character then
+        warn("Player character failed to load in autoTrain!")
+        return false, nil, nil
+    end
+
+    local humanoid = waitForObject(player.Character, "Humanoid")
+    local humanoidRootPart = waitForObject(player.Character, "HumanoidRootPart")
+    if not humanoid or not humanoidRootPart then
+        warn("Humanoid or HumanoidRootPart not found in autoTrain!")
+        return false, nil, nil
+    end
+
+    local strongestModel, targetSeat = findHighestStrengthModelAndInteract(folder, player)
+    if not strongestModel or not targetSeat then
+        warn("No valid machine found for auto-training!")
+        return false, nil, nil
+    end
+
+    if humanoid.Health <= 0 then
+        warn("Player is not alive!")
+        return false, nil, nil
+    end
+
+    if humanoid.SeatPart then
+        if humanoid.SeatPart == targetSeat then
+            print("Player is already on the best machine: " .. strongestModel.Name)
+        else
+            print("Player is on a non-optimal machine, switching to: " .. strongestModel.Name)
+            humanoid.Jump = true
+            humanoid.Sit = false
+            task.wait(0.5)
+            humanoidRootPart.CFrame = targetSeat.CFrame
+            task.wait(3.5)
+            humanoidRootPart.CFrame = targetSeat.CFrame
+            for i = 1, 3 do
+                VirtualInputManager:SendKeyEvent(true, "E", false, game)
+                task.wait(0.05)
+                VirtualInputManager:SendKeyEvent(false, "E", false, game)
+            end
+            task.wait(0.1)
+        end
+    else
+        print("Player is not on any machine, moving to: " .. strongestModel.Name)
+        task.wait(0.1)
+        humanoidRootPart.CFrame = targetSeat.CFrame
+        task.wait(0.2)
+        for i = 1, 3 do
+            VirtualInputManager:SendKeyEvent(true, "E", false, game)
+            task.wait(0.05)
+            VirtualInputManager:SendKeyEvent(false, "E", false, game)
+        end
+        task.wait(0.1)
+    end
+
+    return true, strongestModel, targetSeat
+end
+
+-- Function to handle the auto-farming loop
+_G.startAutoFarm = function()
+    local folder = game.Workspace:FindFirstChild("machinesFolder")
+    if not folder then
+        warn("machinesFolder not found in Workspace!")
+        return
+    end
+    if not player then
+        warn("Local player not found!")
+        return
+    end
+
+    while _G.autofarm1 do
+        if not player.Character then
+            print("Waiting for character to load in startAutoFarm...")
+            player.CharacterAdded:Wait()
+        end
+
+        if not player.Character then
+            warn("Player character failed to load in startAutoFarm!")
+            task.wait(1)
+            continue
+        end
+
+        local humanoid = waitForObject(player.Character, "Humanoid")
+        local humanoidRootPart = waitForObject(player.Character, "HumanoidRootPart")
+        if not humanoid or not humanoidRootPart then
+            warn("Humanoid or HumanoidRootPart not found in startAutoFarm!")
+            task.wait(1)
+            continue
+        end
+
+        local muscleEvent = waitForObject(player, "muscleEvent")
+        if not muscleEvent then
+            warn("muscleEvent not found in LocalPlayer!")
+            task.wait(1)
+            continue
+        end
+
+        local success, strongestModel, targetSeat = autoTrain()
+        if not success then
+            task.wait(1)
+            continue
+        end
+
+        print("Fired muscleEvent for " .. strongestModel.Name)
+        local lastMachineCheck = tick()
+
+        while _G.autofarm1 and humanoid.Health > 0 and humanoid.SeatPart and humanoid.SeatPart == targetSeat do
+            muscleEvent:FireServer("rep", targetSeat)
+            task.wait(0.15)
+
+            if tick() - lastMachineCheck >= 10 then
+                local newStrongestModel, newTargetSeat = findHighestStrengthModelAndInteract(folder, player)
+                if newStrongestModel and newTargetSeat and newTargetSeat ~= targetSeat then
+                    print("Better machine found: " .. newStrongestModel.Name .. ", switching from: " .. strongestModel.Name)
+                    humanoid.Jump = true
+                    humanoid.Sit = false
+                    task.wait(0.5)
+                    humanoidRootPart.CFrame = newTargetSeat.CFrame
+                    task.wait(3.5)
+                    humanoidRootPart.CFrame = newTargetSeat.CFrame
+                    for i = 1, 3 do
+                        VirtualInputManager:SendKeyEvent(true, "E", false, game)
+                        task.wait(0.05)
+                        VirtualInputManager:SendKeyEvent(false, "E", false, game)
+                    end
+                    task.wait(0.1)
+                    strongestModel = newStrongestModel
+                    targetSeat = newTargetSeat
+                    print("Switched to new machine: " .. strongestModel.Name)
+                end
+                lastMachineCheck = tick()
+            end
+        end
+
+        print("Player is no longer on the machine or died: " .. strongestModel.Name .. ", restarting...")
+        task.wait(1)
+    end
+    print("Auto-farm stopped: toggle is off")
+end
+
+-- Function to handle auto-rebirth
+_G.startAutoRebirth = function()
+    local rEvents = waitForObject(ReplicatedStorage, "rEvents")
+    if not rEvents then
+        warn("rEvents not found in ReplicatedStorage!")
+        return
+    end
+
+    local rebirthRemote = waitForObject(rEvents, "rebirthRemote")
+    if not rebirthRemote then
+        warn("rebirthRemote not found in rEvents!")
+        return
+    end
+
+    while _G.autoRebirth do
+        if not player.Character then
+            print("Waiting for character to load in startAutoRebirth...")
+            player.CharacterAdded:Wait()
+        end
+
+        if not player.Character then
+            warn("Player character failed to load in startAutoRebirth!")
+            task.wait(1)
+            continue
+        end
+
+        local humanoid = waitForObject(player.Character, "Humanoid")
+        if not humanoid then
+            warn("Humanoid not found in startAutoRebirth!")
+            task.wait(1)
+            continue
+        end
+
+        if humanoid.Health <= 0 then
+            warn("Player is not alive, waiting to respawn...")
+            task.wait(1)
+            continue
+        end
+
+        print("Invoking rebirthRemote...")
+        rebirthRemote:InvokeServer("rebirthRequest")
+        task.wait(1) -- Wait 1 second between rebirth attempts
+    end
+    print("Auto-rebirth stopped: toggle is off")
+end
+
+-- Load GUI library with error handling
+local GuiLibrary
+local success, result = pcall(function()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/SoldoxD/libery/refs/heads/main/main"))()
+end)
+if success then
+    GuiLibrary = result
+    print("GUI library loaded successfully")
+else
+    warn("Failed to load GUI library: " .. tostring(result))
+end
+
+-- Create GUI window and tab with error handling
+local window, mainTab
+if GuiLibrary then
+    success, result = pcall(function()
+        window = GuiLibrary:CreateWindow("Muscle Legends GUI by Soldo", UDim2.new(0, 500, 0, 300))
+        return window
+    end)
+    if success and window then
+        print("GUI window created successfully")
+    else
+        warn("Failed to create GUI window: " .. tostring(result))
+    end
+
+    if window then
+        success, result = pcall(function()
+            mainTab = GuiLibrary:CreateTab(window, "Main")
+            return mainTab
+        end)
+        if success and mainTab then
+            print("Main tab created successfully")
+        else
+            warn("Failed to create main tab: " .. tostring(result))
+        end
+    end
+end
+
+-- Create toggles for auto-farming and auto-rebirth
+_G.autofarm1 = false
+_G.autoRebirth = false
+if mainTab then
+    success, result = pcall(function()
+        GuiLibrary:CreateSection(mainTab, "Auto Farm Controls")
+        local farmToggle = GuiLibrary:CreateToggle(mainTab, "Enable Auto Farm", false, function(state)
+            _G.autofarm1 = state
+            print("Auto Farm enabled:", state)
+            if state then
+                if _G.startAutoFarm then
+                    spawn(_G.startAutoFarm)
+                else
+                    warn("startAutoFarm function is nil!")
+                end
+            end
+        end)
+        local rebirthToggle = GuiLibrary:CreateToggle(mainTab, "Enable Auto Rebirth", false, function(state)
+            _G.autoRebirth = state
+            print("Auto Rebirth enabled:", state)
+            if state then
+                if _G.startAutoRebirth then
+                    spawn(_G.startAutoRebirth)
+                else
+                    warn("startAutoRebirth function is nil!")
+                end
+            end
+        end)
+    end)
+    if not success then
+        warn("Failed to create GUI section or toggles: " .. tostring(result))
+    end
+else
+    warn("GUI not created; use _G.autofarm1 = true or _G.autoRebirth = true to start manually")
+end
