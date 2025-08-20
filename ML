@@ -271,9 +271,55 @@ _G.startAutoRebirth = function()
 
         print("Invoking rebirthRemote...")
         rebirthRemote:InvokeServer("rebirthRequest")
-        task.wait(1) -- Wait 1 second between rebirth attempts
+        task.wait(1)
     end
     print("Auto-rebirth stopped: toggle is off")
+end
+
+-- Function to handle auto-size
+_G.startAutoSize = function()
+    local rEvents = waitForObject(ReplicatedStorage, "rEvents")
+    if not rEvents then
+        warn("rEvents not found in ReplicatedStorage!")
+        return
+    end
+
+    local changeSpeedSizeRemote = waitForObject(rEvents, "changeSpeedSizeRemote")
+    if not changeSpeedSizeRemote then
+        warn("changeSpeedSizeRemote not found in rEvents!")
+        return
+    end
+
+    while _G.autoSize do
+        if not player.Character then
+            print("Waiting for character to load in startAutoSize...")
+            player.CharacterAdded:Wait()
+        end
+
+        if not player.Character then
+            warn("Player character failed to load in startAutoSize!")
+            task.wait(1)
+            continue
+        end
+
+        local humanoid = waitForObject(player.Character, "Humanoid")
+        if not humanoid then
+            warn("Humanoid not found in startAutoSize!")
+            task.wait(1)
+            continue
+        end
+
+        if humanoid.Health <= 0 then
+            warn("Player is not alive, waiting to respawn...")
+            task.wait(1)
+            continue
+        end
+
+        print("Invoking changeSpeedSizeRemote...")
+        changeSpeedSizeRemote:InvokeServer("changeSize", 1)
+        task.wait(1)
+    end
+    print("Auto-size stopped: toggle is off")
 end
 
 -- Load GUI library with error handling
@@ -314,9 +360,10 @@ if GuiLibrary then
     end
 end
 
--- Create toggles for auto-farming and auto-rebirth
+-- Create toggles for auto-farming, auto-rebirth, and auto-size
 _G.autofarm1 = false
 _G.autoRebirth = false
+_G.autoSize = false
 if mainTab then
     success, result = pcall(function()
         GuiLibrary:CreateSection(mainTab, "Auto Farm Controls")
@@ -342,10 +389,21 @@ if mainTab then
                 end
             end
         end)
+        local sizeToggle = GuiLibrary:CreateToggle(mainTab, "Enable Auto Size", false, function(state)
+            _G.autoSize = state
+            print("Auto Size enabled:", state)
+            if state then
+                if _G.startAutoSize then
+                    spawn(_G.startAutoSize)
+                else
+                    warn("startAutoSize function is nil!")
+                end
+            end
+        end)
     end)
     if not success then
         warn("Failed to create GUI section or toggles: " .. tostring(result))
     end
 else
-    warn("GUI not created; use _G.autofarm1 = true or _G.autoRebirth = true to start manually")
+    warn("GUI not created; use _G.autofarm1 = true or _G.autoRebirth = true or _G.autoSize = true to start manually")
 end
