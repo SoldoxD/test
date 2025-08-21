@@ -47,7 +47,11 @@ local function findHighestStrengthModelAndInteract(folder, player)
     end
 
     for _, child in ipairs(folder:GetChildren()) do
-        if child:IsA("Model") and not child.Name:lower():match("king") then
+        if child:IsA("Model") then
+            -- Only exclude models with "king" in name if _G.excludeKingGym is true
+            if _G.excludeKingGym and child.Name:lower():match("king") then
+                continue
+            end
             local strengthValue = child:FindFirstChild("strengthGain")
             local interactSeat = child:FindFirstChild("interactSeat")
             
@@ -148,7 +152,7 @@ local function autoTrain()
     return true, strongestModel, targetSeat
 end
 
--- Function to handle the auto-farming loop
+-- Function to handle auto-farming loop
 _G.startAutoFarm = function()
     local folder = game.Workspace:FindFirstChild("machinesFolder")
     if not folder then
@@ -322,6 +326,70 @@ _G.startAutoSize = function()
     print("Auto-size stopped: toggle is off")
 end
 
+-- Function to handle auto-treadmill
+_G.startAutoTreadmill = function()
+    while _G.autoTreadmill do
+        if not player.Character then
+            print("Waiting for character to load in startAutoTreadmill...")
+            player.CharacterAdded:Wait()
+        end
+
+        if not player.Character then
+            warn("Player character failed to load in startAutoTreadmill!")
+            task.wait(1)
+            continue
+        end
+
+        local humanoid = waitForObject(player.Character, "Humanoid")
+        local humanoidRootPart = waitForObject(player.Character, "HumanoidRootPart")
+        if not humanoid or not humanoidRootPart then
+            warn("Humanoid or HumanoidRootPart not found in startAutoTreadmill!")
+            task.wait(1)
+            continue
+        end
+
+        if humanoid.Health <= 0 then
+            warn("Player is not alive, waiting to respawn...")
+            task.wait(1)
+            continue
+        end
+
+        -- Lock HumanoidRootPart and teleport to position
+        humanoidRootPart.Anchored = true
+        humanoidRootPart.CFrame = CFrame.new(Vector3.new(-48, 6, 238))
+
+        -- Set player to running state
+        humanoid.WalkSpeed = 32 -- Default run speed in Roblox
+        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+
+        -- Simulate W key down every 3 seconds (no release)
+        local lastTeleport = tick()
+        while _G.autoTreadmill and humanoid.Health > 0 and tick() - lastTeleport < 60 do
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.W, false, game) -- Press W key
+            task.wait(3) -- Wait 3 seconds for next key-down
+        end
+
+        -- Teleport every 60 seconds
+        if _G.autoTreadmill then
+            print("Teleporting to -48, 6, 238")
+            humanoidRootPart.CFrame = CFrame.new(Vector3.new(-48, 6, 238))
+        end
+    end
+
+    -- Cleanup when toggle is off
+    local character = player.Character
+    if character then
+        local humanoid = waitForObject(character, "Humanoid")
+        local humanoidRootPart = waitForObject(character, "HumanoidRootPart")
+        if humanoid and humanoidRootPart then
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.W, false, game) -- Release W key
+            humanoid:ChangeState(Enum.HumanoidStateType.None)
+            humanoidRootPart.Anchored = false
+        end
+    end
+    print("Auto-treadmill stopped: toggle is off")
+end
+
 -- Load GUI library with error handling
 local GuiLibrary
 local success, result = pcall(function()
@@ -360,10 +428,12 @@ if GuiLibrary then
     end
 end
 
--- Create toggles for auto-farming, auto-rebirth, and auto-size
+-- Create toggles for auto-farming, auto-rebirth, auto-size, auto-treadmill, and exclude king gym
 _G.autofarm1 = false
 _G.autoRebirth = false
 _G.autoSize = false
+_G.autoTreadmill = false
+_G.excludeKingGym = true -- Default to excluding king gyms
 if mainTab then
     success, result = pcall(function()
         GuiLibrary:CreateSection(mainTab, "Auto Farm Controls")
@@ -400,10 +470,37 @@ if mainTab then
                 end
             end
         end)
+        local treadmillToggle = GuiLibrary:CreateToggle(mainTab, "Enable Auto Treadmill", false, function(state)
+            _G.autoTreadmill = state
+            print("Auto Treadmill enabled:", state)
+            if state then
+                if _G.startAutoTreadmill then
+                    spawn(_G.startAutoTreadmill)
+                else
+                    warn("startAutoTreadmill function is nil!")
+                end
+            else
+                -- Ensure W key is released and anchoring is stopped when toggle is off
+                local character = player.Character
+                if character then
+                    local humanoid = waitForObject(character, "Humanoid")
+                    local humanoidRootPart = waitForObject(character, "HumanoidRootPart")
+                    if humanoid and humanoidRootPart then
+                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+                        humanoid:ChangeState(Enum.HumanoidStateType.None)
+                        humanoidRootPart.Anchored = false
+                    end
+                end
+            end
+        end)
+        local excludeKingToggle = GuiLibrary:CreateToggle(mainTab, "Exclude King Gym", true, function(state)
+            _G.excludeKingGym = state
+            print("Exclude King Gym enabled:", state)
+        end)
     end)
     if not success then
         warn("Failed to create GUI section or toggles: " .. tostring(result))
     end
 else
-    warn("GUI not created; use _G.autofarm1 = true or _G.autoRebirth = true or _G.autoSize = true to start manually")
+    warn("GUI not created; use _G.autofarm1 = true, _G.autoRebirth = true, _G.autoSize = true, _G.autoTreadmill = true, or _G.excludeKingGym = true/false to control manually")
 end
